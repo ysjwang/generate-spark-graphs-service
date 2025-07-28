@@ -160,8 +160,26 @@ def create_spark_graph_image(prices, ticker, company_name, size=(480, 480)):
     # Plot the spark line
     ax.plot(x, values, color='#1f77b4', linewidth=2.5)
     
-    # Fill area under the curve
-    ax.fill_between(x, values, alpha=0.2, color='#1f77b4')
+    # Calculate dynamic Y-axis bounds
+    min_price = min(values)
+    max_price = max(values)
+    price_range = max_price - min_price
+    
+    # Add padding (5% of range on each side, or at least 0.5% of the price)
+    if price_range > 0:
+        padding = max(price_range * 0.05, min_price * 0.005)
+    else:
+        # If no price change, use 1% of price as padding
+        padding = min_price * 0.01
+    
+    y_min = min_price - padding
+    y_max = max_price + padding
+    
+    # Set Y-axis limits
+    ax.set_ylim(y_min, y_max)
+    
+    # Fill area under the curve (from y_min to show relative change)
+    ax.fill_between(x, values, y_min, alpha=0.2, color='#1f77b4')
     
     # Configure axes
     ax.spines['top'].set_visible(False)
