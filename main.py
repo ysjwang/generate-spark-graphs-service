@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 import numpy as np
 import json
+import pytz
 
 # Environment variables
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY')
@@ -65,6 +66,26 @@ def get_duration_params(duration):
     return start_date, end_date, timespan, multiplier
 
 
+def fetch_company_name(ticker):
+    """Fetch company name from Polygon.io API."""
+    url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
+    
+    params = {
+        'apiKey': POLYGON_API_KEY
+    }
+    
+    try:
+        response = requests.get(url, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('status') == 'OK' and data.get('results'):
+                return data['results'].get('name', ticker)
+    except Exception as e:
+        print(f"Error fetching company name: {e}")
+    
+    return ticker  # Fallback to ticker if company name not found
+
+
 def fetch_stock_data(ticker, start_date, end_date, timespan, multiplier):
     """Fetch stock data from Polygon.io API."""
     base_url = "https://api.polygon.io/v2/aggs/ticker"
@@ -116,49 +137,105 @@ def fetch_stock_data(ticker, start_date, end_date, timespan, multiplier):
     return data['results']
 
 
-def create_spark_graph_image(prices, size=(480, 480)):
-    """Generate a spark graph image from price data."""
-    # Extract closing prices
+def create_spark_graph_image(prices, ticker, company_name, size=(480, 480)):
+    """Generate a spark graph image from price data with labels and axes."""
+    # Extract data
     values = [bar['c'] for bar in prices]
+    timestamps = [bar['t'] for bar in prices]
     
     if not values:
         raise ValueError("No price data available")
     
-    # Create figure with transparent background
+    # Create figure with white background
     dpi = 100
     fig_width = size[0] / dpi
     fig_height = size[1] / dpi
     
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
-    fig.patch.set_alpha(0)
-    ax.patch.set_alpha(0)
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi, facecolor='white')
+    ax.set_facecolor('white')
     
     # Create x-axis values
     x = np.arange(len(values))
     
     # Plot the spark line
-    ax.plot(x, values, color='#1f77b4', linewidth=2)
+    ax.plot(x, values, color='#1f77b4', linewidth=2.5)
     
     # Fill area under the curve
-    ax.fill_between(x, values, alpha=0.3, color='#1f77b4')
+    ax.fill_between(x, values, alpha=0.2, color='#1f77b4')
     
-    # Remove all axes and labels
-    ax.set_xticks([])
-    ax.set_yticks([])
+    # Configure axes
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['bottom'].set_visible(False)
-    ax.spines['left'].set_visible(False)
+    ax.spines['bottom'].set_linewidth(0.5)
+    ax.spines['left'].set_linewidth(0.5)
     
-    # Add subtle grid
-    ax.grid(True, alpha=0.1, linestyle='-', linewidth=0.5)
+    # Add grid
+    ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+    ax.set_axisbelow(True)
     
-    # Adjust margins
-    plt.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01)
+    # Y-axis formatting (prices)
+    ax.yaxis.set_major_locator(plt.MaxNLocator(5))
+    ax.set_ylabel('Price ($)', fontsize=10)
+    
+    # Format y-axis labels as currency
+    def format_price(x, p):
+        return f'${x:,.0f}' if x >= 1 else f'${x:.2f}'
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(format_price))
+    
+    # X-axis formatting (time)
+    # Select a subset of timestamps to show (avoid overcrowding)
+    num_labels = min(6, len(timestamps))
+    indices = np.linspace(0, len(timestamps)-1, num_labels, dtype=int)
+    
+    ax.set_xticks(indices)
+    
+    # Format timestamps based on data range
+    time_range = timestamps[-1] - timestamps[0]
+    if time_range < 86400000:  # Less than a day (in milliseconds)
+        date_format = '%H:%M'
+    elif time_range < 604800000:  # Less than a week
+        date_format = '%b %d\n%H:%M'
+    else:
+        date_format = '%b %d'
+    
+    labels = []
+    est_tz = pytz.timezone('US/Eastern')
+    
+    for idx in indices:
+        # Convert milliseconds to datetime in UTC, then to EST
+        dt_utc = datetime.fromtimestamp(timestamps[idx] / 1000, tz=pytz.UTC)
+        dt_est = dt_utc.astimezone(est_tz)
+        labels.append(dt_est.strftime(date_format))
+    
+    ax.set_xticklabels(labels, fontsize=8)
+    ax.set_xlabel('Time (EST)', fontsize=10)
+    
+    # Add title with ticker and company name
+    plt.title(f'{ticker} - {company_name}', fontsize=14, fontweight='bold', pad=15)
+    
+    # Add current price annotation
+    current_price = values[-1]
+    price_change = values[-1] - values[0]
+    price_change_pct = (price_change / values[0]) * 100
+    
+    # Color based on price change
+    change_color = '#2ca02c' if price_change >= 0 else '#d62728'
+    
+    # Add price info as text
+    price_text = f'${current_price:,.2f}'
+    change_text = f'{"+" if price_change >= 0 else ""}{price_change:.2f} ({price_change_pct:+.2f}%)'
+    
+    ax.text(0.02, 0.98, price_text, transform=ax.transAxes, 
+            fontsize=12, fontweight='bold', verticalalignment='top')
+    ax.text(0.02, 0.91, change_text, transform=ax.transAxes, 
+            fontsize=10, color=change_color, verticalalignment='top')
+    
+    # Adjust layout
+    plt.tight_layout()
     
     # Save to BytesIO object
     buffer = BytesIO()
-    plt.savefig(buffer, format='png', transparent=True, bbox_inches='tight', pad_inches=0)
+    plt.savefig(buffer, format='png', dpi=dpi, bbox_inches='tight', facecolor='white')
     plt.close()
     
     buffer.seek(0)
@@ -207,11 +284,14 @@ def generate_spark_graph(request):
         # Get duration parameters
         start_date, end_date, timespan, multiplier = get_duration_params(duration)
         
+        # Fetch company name
+        company_name = fetch_company_name(ticker)
+        
         # Fetch stock data
         stock_data = fetch_stock_data(ticker, start_date, end_date, timespan, multiplier)
         
         # Generate spark graph
-        image_data = create_spark_graph_image(stock_data, size)
+        image_data = create_spark_graph_image(stock_data, ticker, company_name, size)
         
         # Return PNG image
         response = make_response(image_data)

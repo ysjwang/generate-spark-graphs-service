@@ -6,9 +6,13 @@ import requests
 from datetime import datetime, timedelta
 import json
 
-# Load environment variables
-from dotenv import load_dotenv
-load_dotenv()
+# Try to load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("Note: python-dotenv not installed. Reading from environment only.")
+    pass
 
 POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY')
 

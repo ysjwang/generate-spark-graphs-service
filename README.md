@@ -49,19 +49,30 @@ curl -H "Authorization: Basic $(echo -n 'admin:yourpassword' | base64)" \
 
 1. Install dependencies:
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
+# Optional: for testing scripts
+pip3 install python-dotenv
 ```
 
-2. Create `.env.yaml` file with your credentials:
-```yaml
-POLYGON_API_KEY: "your_polygon_api_key"
-BASIC_AUTH_USERNAME: "admin"
-BASIC_AUTH_PASSWORD: "your_password"
+2. Create `.env` file with your credentials:
+```bash
+POLYGON_API_KEY=your_polygon_api_key
+BASIC_AUTH_USERNAME=admin
+BASIC_AUTH_PASSWORD=your_password
 ```
 
 3. Run locally:
 ```bash
-functions-framework --target=generate_spark_graph --debug
+# Option 1: Using the provided script (recommended)
+./run_local.sh
+
+# Option 2: Run directly (make sure to export env vars first)
+export POLYGON_API_KEY=your_polygon_api_key
+export BASIC_AUTH_PASSWORD=your_password
+python3 -m functions_framework --target=generate_spark_graph --debug
+
+# Option 3: Run automated tests
+python3 test_local.py
 ```
 
 ## Deployment
